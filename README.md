@@ -82,7 +82,7 @@ Simply run the application and move your mouse around. The flame effect will app
 
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed --icon=icon.ico cf.py
+pyinstaller --onefile --windowed --icon=cf_ico.ico cf.py
 ```
 
 ## License
