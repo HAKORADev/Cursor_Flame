@@ -37,10 +37,11 @@ A stunning flame particle effect that follows your mouse cursor.
 
 Lightweight, high-performance native binaries:
 
-| Platform | Download | Size |
-|----------|----------|------|
-| Windows | `Cursor_Flame_cpp.zip` | ~300 KB |
-| Linux | `KursorFlame_linux_cpp.zip` | ~65 KB |
+| Platform | Version | Download | Size | Features |
+|----------|---------|----------|------|----------|
+| **Linux** | **v2** | `KursorFlame_linux_cpp_2.zip` | ~300 KB | GPU accel, themes, config |
+| Linux | v1 | `KursorFlame_linux_cpp.zip` | ~65 KB | Basic flame effect |
+| Windows | v1 | `Cursor_Flame_cpp.zip` | ~300 KB | Basic flame effect |
 
 ### Python Version
 
@@ -48,7 +49,21 @@ Lightweight, high-performance native binaries:
 |----------|----------|------|
 | Windows | `Cursor_Flame.zip` | ~28 MB |
 
-## Hotkeys (C++ Version)
+### Version Comparison
+
+| Feature | v1 (Windows/Linux) | v2 (Linux Only) |
+|---------|-------------------|-----------------|
+| Basic flame effect | ✅ | ✅ |
+| Toggle hotkey | ✅ | ✅ |
+| Close hotkey | ✅ | ✅ |
+| GPU acceleration | ❌ | ✅ |
+| Themes (Fire/Snow/Water) | ❌ | ✅ |
+| Custom colors | ❌ | ✅ |
+| Config file | ❌ | ✅ |
+| Quality presets | ❌ | ✅ |
+| Physics customization | ❌ | ✅ |
+
+## Hotkeys
 
 | Hotkey | Action |
 |--------|--------|
@@ -74,10 +89,11 @@ python cf.py
 ### Linux
 
 **Option 1: Download Release (Recommended)**
-1. Download `KursorFlame_linux_cpp.zip` from [Releases](../../releases)
+1. Download `KursorFlame_linux_cpp_2.zip` (v2 - recommended) or `KursorFlame_linux_cpp.zip` (v1) from [Releases](../../releases)
 2. Extract and run:
 ```bash
 cd KursorFlame
+chmod +x KursorFlame *.sh
 ./run.sh
 # or directly: ./KursorFlame
 ```
@@ -87,7 +103,11 @@ cd KursorFlame
 # Requires X11 development libraries
 # Ubuntu/Debian: sudo apt install libx11-dev libxrandr-dev libxi-dev
 
+# v1
 g++ -O2 -o KursorFlame kf.cpp -lX11 -lXrandr -lXi -lpthread
+
+# v2 (with GPU support - requires OpenGL)
+g++ -O2 -o KursorFlame kf2.cpp -lX11 -lXrandr -lXi -lGL -lpthread
 ./KursorFlame
 ```
 
@@ -101,6 +121,7 @@ g++ -O2 -o KursorFlame kf.cpp -lX11 -lXrandr -lXi -lpthread
 ### Linux
 - X11 display server (Xorg)
 - libX11, libXrandr, libXi
+- OpenGL (optional, for v2 GPU mode)
 
 ## Usage
 
@@ -113,6 +134,33 @@ Simply run the application and move your mouse around. The flame effect will app
 | Hold click | Intensifying burnout flames |
 | Scroll | Directional flame burst |
 | Fast movement | Fireball mode with trailing flames |
+
+## Configuration (v2 Linux Only)
+
+Edit `kursor.conf` to customize effects:
+
+```ini
+[General]
+tail = 1            # Enable trailing particles
+on_click = 1        # Enable click effects
+on_hold = 1         # Enable burnout mode
+on_scroll = 1       # Enable scroll effects
+strike = 1          # Enable fast-movement flash
+interactive_edges = 1  # Particles bounce off screen
+
+[Visuals]
+quality = 1         # 0=Low, 1=Medium, 2=High, 3=Ultra
+theme = 0           # 0=Fire, 1=Snow, 2=Water, 4=Custom
+custom_r = 255      # Custom color (if theme=4)
+custom_g = 100
+custom_b = 50
+
+[Physics]
+gravity_mult = 1.0  # Vertical pull (negative = up)
+flicker_mult = 1.0  # Particle jitter
+wind_x = 0.0        # Horizontal push
+wind_y = 0.0        # Vertical push
+```
 
 ## Included Scripts
 
@@ -150,7 +198,11 @@ cl /O2 /EHsc /Fe:Cursor_Flame.exe cf.cpp user32.lib gdi32.lib winmm.lib
 
 ### C++ Version (Linux)
 ```bash
+# v1
 g++ -O2 -o KursorFlame kf.cpp -lX11 -lXrandr -lXi -lpthread
+
+# v2 (with OpenGL/GPU support)
+g++ -O2 -o KursorFlame kf2.cpp -lX11 -lXrandr -lXi -lGL -lpthread
 ```
 
 ## License
