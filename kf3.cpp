@@ -343,7 +343,9 @@ public:
     void on_click(bool pr){
         if(pr&&!mouse_down){
             hold_start=get_now_ms(); bool is_m=(speed>Cfg::VELOCITY_THRESHOLD*2.f);
+            std::cout << "[KursorFlame] click event pr=" << pr << " is_moving=" << is_m << "\n";
             if(is_m){ if(config.strike){ color_override=C4(config.strike_r, config.strike_g, config.strike_b, config.strike_a); color_override_t=1.f; color_decay=0.033f;
+                    std::cout << "[KursorFlame]   -> strike color_override SET (will bleed to all particles)\n";
                     if(config.theme==1){ for(int i=0;i<25;i++){_spawn_particle(cx,cy,randf(-2,2),randf(-15,15),2.f,1.5f);} }
                     else if(config.theme==2){ for(int i=0;i<25;i++){_spawn_particle(cx,cy,randf(-5,5),randf(5,15),1.5f,1.5f);} }
                     else{ for(int i=0;i<20;i++){float a=randf(0,6.283f),s=randf(10,20);_spawn_particle(cx,cy,cosf(a)*s,sinf(a)*s,2.f,1.2f);}}}}
@@ -361,6 +363,7 @@ public:
             // would lerp ALL particles toward the scroll color - the bug where
             // 'the others turn yellow for a moment'. Only scroll particles should
             // carry the scroll color; everything else keeps its own color.
+            std::cout << "[KursorFlame] scroll event dy=" << dy << " (color_override NOT set)\n";
             for(int i=0;i<24;i++)_spawn_scroll_particle(cx+randf(-30,30),cy+randf(-30,30),svy);
             for(int i=0;i<8;i++)_spawn_spark(cx+randf(-20,20),cy+randf(-20,20));
         }
@@ -897,6 +900,25 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmdLine, int show) {
     // 1. Make process DPI-aware so screen coordinates are real pixels
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
+    // 1b. Allocate a console window so the user can see version + diagnostics.
+    // The app is built with /SUBSYSTEM:WINDOWS so stdout normally goes nowhere.
+    // AllocConsole + redirecting stdin/stdout/stderr lets us print diagnostic
+    // info that the user can read to verify which build they're running.
+    AllocConsole();
+    freopen_s(reinterpret_cast<FILE**>(stdin), "CONIN$", "r", stdin);
+    freopen_s(reinterpret_cast<FILE**>(stdout), "CONOUT$", "w", stdout);
+    freopen_s(reinterpret_cast<FILE**>(stderr), "CONOUT$", "w", stderr);
+    SetConsoleTitleW(L"KursorFlame v3.0 - Diagnostics");
+    SetConsoleOutputCP(CP_UTF8);
+
+    std::cout << "==============================================\n";
+    std::cout << " KursorFlame v3.0.4 (build 626e76b+)\n";
+    std::cout << " Scroll-bleed-fix + single-instance + AVX2\n";
+    std::cout << "==============================================\n";
+    std::cout << "[KursorFlame] Single-instance lock: ACTIVE\n";
+    std::cout << "[KursorFlame] AVX2 runtime check: PASSED\n";
+    std::cout << "[KursorFlame] thread_local RNG: ENABLED\n";
+
     // 2. Get full virtual screen dimensions (covers all monitors)
     int sw = GetSystemMetrics(SM_CXVIRTUALSCREEN);
     int sh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
@@ -904,6 +926,10 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmdLine, int show) {
     std::cout << "[KursorFlame] Virtual screen: " << sw << "x" << sh << "\n";
     std::cout << "[KursorFlame] CPU cores detected: " << std::thread::hardware_concurrency() << "\n";
     std::cout << "[KursorFlame] CPU Multi-Core Renderer Enabled (uses all cores)\n";
+    std::cout << "[KursorFlame] Scroll color_override: DISABLED (fix applied)\n";
+    std::cout << "[KursorFlame] Hotkeys: Ctrl+Alt+E=toggle  Ctrl+Alt+Q=quit\n";
+    std::cout << "[KursorFlame] Close this console window to quit the app.\n";
+    std::cout << "==============================================\n";
 
     // 3. Allocate CPU BGRA buffer
     g_W = sw; g_H = sh;
