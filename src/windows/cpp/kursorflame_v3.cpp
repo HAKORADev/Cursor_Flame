@@ -1,7 +1,3 @@
-// KursorFlame v3.0 - Native Windows Port (NVIDIA GPU + DirectX 11 + Multi-core CPU)
-// Ported from kf2.5.cpp (Linux). Uses Win32 + Direct3D 11 + DirectComposition.
-// Build: cl /O2 /EHsc /Fe:KursorFlame.exe kf3.cpp /link d3d11.lib dxgi.lib d3dcompiler.lib user32.lib gdi32.lib dwmapi.lib dcomp.lib ole32.lib shell32.lib
-
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
@@ -29,7 +25,7 @@
 #include <mutex>
 #include <atomic>
 #include <memory>
-#include <intrin.h>   // __cpuid / __cpuidex for AVX2 runtime detection
+#include <intrin.h>   
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
@@ -42,9 +38,6 @@
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "shlwapi.lib")
 
-// ============================================================================
-// Configuration namespace - ported 1:1 from kf2.5.cpp
-// ============================================================================
 namespace Cfg {
     constexpr int EDGE_MARGIN = 60;
     constexpr float FADE_POWER = 2.0f, EDGE_SOFT_THRESHOLD = 0.05f, PHYS_DRAG = 0.98f;
@@ -199,15 +192,9 @@ struct AppConfig {
     }
 };
 
-// ============================================================================
-// State machines and RNG (ported 1:1)
-// ============================================================================
 enum class State { NORMAL, BURNOUT, FIREBALL };
 enum class BurnoutPhase { NONE, PHASE_1, PHASE_2, PHASE_3, PHASE_4 };
-// Thread-local RNG: the particle update loop runs across all CPU cores via
-// ThreadPool::parallel_for. A single global mt19937 would cause a data race.
-// thread_local gives each worker its own generator - both faster (no contention)
-// and correct.
+
 static thread_local std::mt19937 g_rng([]{ std::random_device rd; return rd(); }());
 static inline float randf(float lo, float hi) { return std::uniform_real_distribution<float>(lo, hi)(g_rng); }
 static inline float randf01() { return std::uniform_real_distribution<float>(0.0f, 1.0f)(g_rng); }
@@ -224,9 +211,6 @@ static C4 cmatrix_get(float e, const KF* kfs, int count, float max_t) {
     return {kfs[count-1].r, kfs[count-1].g, kfs[count-1].b, 255};
 }
 
-// ============================================================================
-// Particle pools (ported 1:1, SoA layout for cache-friendly SIMD)
-// ============================================================================
 struct PMatrix {
     static constexpr int SIZE = 30000;
     float x[SIZE],y[SIZE],vx[SIZE],vy[SIZE],life[SIZE],max_life[SIZE],size_[SIZE],wave_offset[SIZE];
@@ -255,9 +239,6 @@ struct SmokePool {
     int count()const{int c=0;for(int i=0;i<MAX;i++)c+=active[i];return c;}
 };
 
-// ============================================================================
-// Global screen buffer (CPU side, BGRA) - same role as g_buf in Linux
-// ============================================================================
 static int g_W=0,g_H=0;
 static std::vector<uint32_t> g_buf;
 static void renderClear(){memset(g_buf.data(),0,g_buf.size()*4);}
@@ -265,10 +246,6 @@ static inline void blendAdd(int px,int py,float r,float g,float b,float a){ if(p
 static inline void blendAlpha(int px,int py,float r,float g,float b,float a){ if(px<0||px>=g_W||py<0||py>=g_H)return; float fa=a/255.f; if(fa<=0.f)return; uint32_t* d=&g_buf[py*g_W+px]; uint8_t* p=(uint8_t*)d; p[0]=(uint8_t)(p[0]*(1.f-fa)+b*fa); p[1]=(uint8_t)(p[1]*(1.f-fa)+g*fa); p[2]=(uint8_t)(p[2]*(1.f-fa)+r*fa); }
 static C4 evalTeardropGrad(const C4& s0,const C4& s1,const C4& s2,float t){ if(t<=0.f)return s0; if(t<=0.4f)return c4lerp(s0,s1,t/0.4f); if(t<=0.7f)return c4lerp(s1,s2,(t-0.4f)/0.3f); if(t<=1.f)return c4lerp(s2,C4(0,0,0,0),(t-0.7f)/0.3f); return C4(0,0,0,0); }
 
-// ============================================================================
-// Thread pool - uses hardware_concurrency() workers (all CPU cores)
-// Replaces the dual-core std::async approach in kf2.5.cpp
-// ============================================================================
 class ThreadPool {
 public:
     static unsigned int numWorkers() {
@@ -293,9 +270,6 @@ public:
     }
 };
 
-// ============================================================================
-// KursorFlame - ported 1:1 from kf2.5.cpp, with multi-core render upgrade
-// ============================================================================
 class KursorFlame {
 public:
     PMatrix p; SparkPool sparks; SmokePool smoke; AppConfig config;
@@ -325,15 +299,15 @@ public:
     void _spawn_scroll_particle(float x,float y,float svy){
         int i=pidx;pidx=(pidx+1)%PMatrix::SIZE;
         float psz=(config.quality==4)?config.q_particle_size*config.tail_thick_mult:1.0f;
-        // Wider horizontal spread + stronger vertical thrust so the burst is clearly directional
+        
         float spread = fabsf(svy)*1.5f;
         p.spawn(i,x,y,
-            randf(-1,1)*spread,                       // vx: wider lateral spread
-            svy*1.3f+randf(-0.5f,0.5f),               // vy: stronger vertical thrust in scroll direction
+            randf(-1,1)*spread,                       
+            svy*1.3f+randf(-0.5f,0.5f),               
             1.f,
-            randf(12,22)*psz,                          // larger particles for visibility
+            randf(12,22)*psz,                          
             true);
-        p.max_life[i]=randf(0.012f,0.022f);            // slower decay => longer life (~0.7-1.2s)
+        p.max_life[i]=randf(0.012f,0.022f);            
     }
     void _start_lightning_effect(){
         if(config.theme==1){ for(int i=0;i<40;i++){float a=randf(0,6.28f),s=randf(2,8);_spawn_particle(cx,cy,cosf(a)*s,sinf(a)*s,1.5f,2.f);} }
@@ -343,9 +317,7 @@ public:
     void on_click(bool pr){
         if(pr&&!mouse_down){
             hold_start=get_now_ms(); bool is_m=(speed>Cfg::VELOCITY_THRESHOLD*2.f);
-            std::cout << "[KursorFlame] click event pr=" << pr << " is_moving=" << is_m << "\n";
             if(is_m){ if(config.strike){ color_override=C4(config.strike_r, config.strike_g, config.strike_b, config.strike_a); color_override_t=1.f; color_decay=0.033f;
-                    std::cout << "[KursorFlame]   -> strike color_override SET (will bleed to all particles)\n";
                     if(config.theme==1){ for(int i=0;i<25;i++){_spawn_particle(cx,cy,randf(-2,2),randf(-15,15),2.f,1.5f);} }
                     else if(config.theme==2){ for(int i=0;i<25;i++){_spawn_particle(cx,cy,randf(-5,5),randf(5,15),1.5f,1.5f);} }
                     else{ for(int i=0;i<20;i++){float a=randf(0,6.283f),s=randf(10,20);_spawn_particle(cx,cy,cosf(a)*s,sinf(a)*s,2.f,1.2f);}}}}
@@ -358,12 +330,11 @@ public:
         if(!config.on_scroll)return;
         if(dy!=0){
             float svy=-dy*Cfg::SPAWN_SCROLL_SENS;
-            // Do NOT set color_override here. Scroll particles already receive
-            // their color via the is_scroll flag in _color(). Setting color_override
-            // would lerp ALL particles toward the scroll color - the bug where
-            // 'the others turn yellow for a moment'. Only scroll particles should
-            // carry the scroll color; everything else keeps its own color.
-            std::cout << "[KursorFlame] scroll event dy=" << dy << " (color_override NOT set)\n";
+            
+            
+            
+            
+            
             for(int i=0;i<24;i++)_spawn_scroll_particle(cx+randf(-30,30),cy+randf(-30,30),svy);
             for(int i=0;i<8;i++)_spawn_spark(cx+randf(-20,20),cy+randf(-20,20));
         }
@@ -385,37 +356,37 @@ public:
         if(wind_timer>0){wind_timer--;wind_x*=0.95f;wind_y*=0.95f;}else{wind_x=wind_y=0;}
         if(p.count()>0){if(duration_start<0)duration_start=frame_count;}else{duration_start=-1;}
         _interp_spawn();_spawn_mode();
-        // Theme-specific base gravity:
-        //   Fire  (0): -0.028  - strong upward rise (hot air)
-        //   Snow  (1):  0.006  - slow gentle fall (was 0.015, too fast)
-        //   Water (2):  0.004  - slow flow downward (liquid, not free-fall)
+        
+        
+        
+        
         float bg=(config.theme==1)?0.006f*config.gravity_mult:(config.theme==2)?0.004f*config.gravity_mult:-0.028f*config.gravity_mult;
         float tr=(config.quality==4)?(0.1f*config.q_jitter_int*config.flicker_mult):(config.quality>0?(0.1f*config.quality*config.flicker_mult):0.f);
-        // Multi-core particle update - split PMatrix::SIZE across all cores
+        
         ThreadPool::parallel_for(0, PMatrix::SIZE, 1024, [&](int s, int e){
             for(int i=s;i<e;i++){
                 if(!p.is_active(i))continue; p.life[i]-=p.max_life[i]; if(tr>0){p.vx[i]+=randf(-tr,tr);p.vy[i]+=randf(-tr,tr);}
                 p.vx[i]+=config.wind_x;p.vy[i]+=config.wind_y;p.x[i]+=p.vx[i]+wind_x;p.y[i]+=p.vy[i]+wind_y;
                 p.x[i]+=sinf(frame_count*0.1f+i)*0.3f*config.flicker_mult;
                 if(config.quality==4 && config.wave_amp != 0.0f) { p.x[i] += sinf(p.life[i] * 10.0f * config.wave_freq + p.wave_offset[i]) * config.wave_amp; }
-                // Theme-specific physics
-                if(config.theme==2){ p.vx[i]*=0.94f; p.vy[i]*=0.96f; } // water: viscous damping (liquid feel)
-                else { p.vx[i]*=0.98f; p.vy[i]*=0.98f; }                 // fire/snow: normal drag
+                
+                if(config.theme==2){ p.vx[i]*=0.94f; p.vy[i]*=0.96f; } 
+                else { p.vx[i]*=0.98f; p.vy[i]*=0.98f; }                 
                 p.vy[i]+=bg;
-                if(config.theme==1){ p.x[i]+=sinf(frame_count*0.02f+p.wave_offset[i])*0.4f; } // snow: gentle lateral drift
+                if(config.theme==1){ p.x[i]+=sinf(frame_count*0.02f+p.wave_offset[i])*0.4f; } 
                 if(config.interactive_edges){if(p.x[i]<0){p.x[i]=0;p.vx[i]=fabsf(p.vx[i])*0.5f;}if(p.x[i]>screen_width){p.x[i]=screen_width;p.vx[i]=-fabsf(p.vx[i])*0.5f;}if(p.y[i]<0){p.y[i]=0;p.vy[i]=fabsf(p.vy[i])*0.5f;}if(p.y[i]>screen_height){p.y[i]=screen_height;p.vy[i]=-fabsf(p.vy[i])*0.5f;}}
                 if(p.life[i]<=0)p.kill(i);
             }
         });
-        // Sparks + smoke updates can also be multi-core
+        
         ThreadPool::parallel_for(0, SparkPool::MAX, 64, [&](int s, int e){ for(int i=s;i<e;i++)sparks.update(i); });
         ThreadPool::parallel_for(0, SmokePool::MAX, 512, [&](int s, int e){ for(int i=s;i<e;i++) smoke.update(i); });
         _merge_sparks();_emit_smoke();
     }
     void render(){_render_cpu_multicore();}
 private:
-    // Multi-core renderer: split screen into N horizontal regions, each worker renders its band.
-    // Replaces the 2-core std::async approach from kf2.5.cpp with hardware_concurrency() workers.
+    
+    
     void _render_cpu_multicore(){
         renderClear();
         int nW = (int)ThreadPool::numWorkers();
@@ -436,7 +407,7 @@ private:
     void _drawSoftBlobRegion(float x,float y,float s,const C4& c,int ry0,int ry1){
         if(s<=0.f)return; int iy0=std::max(ry0,(int)(y-s)),iy1=std::min(ry1-1,(int)(y+s+1)),ix0=std::max(0,(int)(x-s)),ix1=std::min(g_W-1,(int)(x+s+1));
         float r2=s*s,ir2=1.f/r2;
-        bool water=(config.theme==2); // water: alpha blend for glassy, non-stacking look
+        bool water=(config.theme==2); 
         for(int py=iy0;py<=iy1;py++){
             float dy2=(py+0.5f-y)*(py+0.5f-y);
             #pragma loop(ivdep)
@@ -445,7 +416,7 @@ private:
                 if(d2<r2){
                     float d=sqrtf(d2*ir2);
                     float t=1.f-d;
-                    float it=t*t*t; // cubic falloff - smoother alpha gradient at edges
+                    float it=t*t*t; 
                     float a=c.a*it;
                     if(water) blendAlpha(px,py,c.r,c.g,c.b,a);
                     else blendAdd(px,py,c.r,c.g,c.b,a);
@@ -509,11 +480,6 @@ private:
     float _edge_fade(float x,float y){float d=std::min(std::min(x,(float)g_W-x),std::min(y,(float)g_H-y));return (d>=60.f)?1.f:powf(d/60.f,2.f);}
 };
 
-// ============================================================================
-// HLSL shaders - embedded as strings, compiled at runtime via D3DCompile
-// Vertex shader: fullscreen triangle (no vertex buffer needed)
-// Pixel shader: samples the CPU-authored BGRA texture, applies premultiplied alpha
-// ============================================================================
 static const char* kVS = R"(
 struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 VSOut main(uint id : SV_VertexID) {
@@ -537,10 +503,6 @@ float4 main(VSOut i) : SV_TARGET {
 }
 )";
 
-// ============================================================================
-// D3D11 Renderer - selects NVIDIA adapter (VendorId 0x10DE) explicitly
-// Uses DirectComposition + DXGI swap chain for per-pixel alpha overlay
-// ============================================================================
 class D3D11Renderer {
 public:
     ID3D11Device*           device = nullptr;
@@ -568,11 +530,11 @@ public:
         width = w; height = h;
         HRESULT hr;
 
-        // 1. Create DXGI factory
+        
         hr = CreateDXGIFactory1(__uuidof(IDXGIFactory2), (void**)&factory);
         if(FAILED(hr)) { std::cerr << "CreateDXGIFactory1 failed: 0x" << std::hex << hr << std::dec << "\n"; return false; }
 
-        // 2. Enumerate adapters, prefer NVIDIA (VendorId 0x10DE)
+        
         IDXGIAdapter1* fallback = nullptr;
         for(UINT i=0; factory->EnumAdapters1(i, &adapter) != DXGI_ERROR_NOT_FOUND; i++) {
             DXGI_ADAPTER_DESC1 desc; adapter->GetDesc1(&desc);
@@ -581,12 +543,10 @@ public:
             if(desc.VendorId == 0x10DE) {
                 nvidiaSelected = true;
                 adapterName = name;
-                std::cout << "[D3D11] Selected NVIDIA adapter: " << name << " (VendorId=0x" << std::hex << desc.VendorId << std::dec << ")\n";
                 if(fallback) { fallback->Release(); fallback = nullptr; }
                 break;
             } else {
                 if(!fallback) { fallback = adapter; adapter->AddRef(); }
-                std::cout << "[D3D11] Skipping non-NVIDIA adapter: " << name << " (VendorId=0x" << std::hex << desc.VendorId << std::dec << ")\n";
                 adapter->Release(); adapter = nullptr;
             }
         }
@@ -594,12 +554,11 @@ public:
             DXGI_ADAPTER_DESC1 desc; adapter->GetDesc1(&desc);
             char name[128]; WideCharToMultiByte(CP_UTF8, 0, desc.Description, -1, name, sizeof(name), NULL, NULL);
             adapterName = name;
-            std::cout << "[D3D11] No NVIDIA adapter found, falling back to: " << name << "\n";
         }
         if(fallback) fallback->Release();
         if(!adapter) { std::cerr << "[D3D11] No DXGI adapter found\n"; return false; }
 
-        // 3. Create D3D11 device on the chosen adapter with BGRA support
+        
         D3D_FEATURE_LEVEL fls[] = { D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_1, D3D_FEATURE_LEVEL_10_0 };
         D3D_FEATURE_LEVEL fl;
         UINT flags = 0;
@@ -608,9 +567,8 @@ public:
 #endif
         hr = D3D11CreateDevice(adapter, D3D_DRIVER_TYPE_UNKNOWN, nullptr, flags, fls, 4, D3D11_SDK_VERSION, &device, &fl, &context);
         if(FAILED(hr)) { std::cerr << "D3D11CreateDevice failed: 0x" << std::hex << hr << std::dec << "\n"; return false; }
-        std::cout << "[D3D11] Device created on feature level 0x" << std::hex << fl << std::dec << "\n";
 
-        // 4. Create swap chain for DirectComposition (alpha-enabled, no HWND backbuffer)
+        
         DXGI_SWAP_CHAIN_DESC1 scd = {};
         scd.Width = w; scd.Height = h;
         scd.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
@@ -619,24 +577,24 @@ public:
         scd.BufferCount = 2;
         scd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
         scd.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
-        scd.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED; // per-pixel alpha
+        scd.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED; 
         hr = factory->CreateSwapChainForComposition(device, &scd, nullptr, &swapChain);
         if(FAILED(hr)) {
-            // Fallback: try without premultiplied alpha
+            
             scd.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
             hr = factory->CreateSwapChainForComposition(device, &scd, nullptr, &swapChain);
             if(FAILED(hr)) { std::cerr << "CreateSwapChainForComposition failed: 0x" << std::hex << hr << std::dec << "\n"; return false; }
         }
 
-        // 5. Create RTV from swap chain back buffer
+        
         ID3D11Texture2D* back = nullptr;
         swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&back);
         hr = device->CreateRenderTargetView(back, nullptr, &rtv);
         back->Release();
         if(FAILED(hr)) { std::cerr << "CreateRenderTargetView failed: 0x" << std::hex << hr << std::dec << "\n"; return false; }
 
-        // 6. Create DirectComposition device + visual + target (binds swap chain to hwnd)
-        // DCompositionCreateDevice needs an IDXGIDevice*, so QI the D3D11 device for it.
+        
+        
         IDXGIDevice* dxgiDevice = nullptr;
         hr = device->QueryInterface(__uuidof(IDXGIDevice), (void**)&dxgiDevice);
         if(FAILED(hr) || !dxgiDevice) { std::cerr << "QI IDXGIDevice failed: 0x" << std::hex << hr << std::dec << "\n"; return false; }
@@ -654,7 +612,7 @@ public:
         hr = dcompDevice->Commit();
         if(FAILED(hr)) { std::cerr << "Commit failed\n"; return false; }
 
-        // 7. Compile shaders at runtime
+        
         ID3DBlob* vsBlob = nullptr, *psBlob = nullptr, *errBlob = nullptr;
         UINT compileFlags = 0;
 #ifdef _DEBUG
@@ -668,7 +626,7 @@ public:
         device->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &ps);
         vsBlob->Release(); psBlob->Release();
 
-        // 8. Create dynamic staging texture (CPU-write) - same size as screen
+        
         D3D11_TEXTURE2D_DESC td = {};
         td.Width = w; td.Height = h;
         td.MipLevels = 1; td.ArraySize = 1;
@@ -682,7 +640,7 @@ public:
         hr = device->CreateShaderResourceView(stagingTex, nullptr, &stagingSRV);
         if(FAILED(hr)) { std::cerr << "CreateShaderResourceView failed\n"; return false; }
 
-        // 9. Sampler state
+        
         D3D11_SAMPLER_DESC sd = {};
         sd.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
         sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
@@ -691,13 +649,13 @@ public:
         sd.MinLOD = sd.MaxLOD = 0;
         device->CreateSamplerState(&sd, &sampler);
 
-        // 10. Blend state - premultiplied alpha: dst = src + dst*(1-src.a)
+        
         D3D11_BLEND_DESC bd = {};
         bd.AlphaToCoverageEnable = FALSE;
         bd.IndependentBlendEnable = FALSE;
         D3D11_RENDER_TARGET_BLEND_DESC& brt = bd.RenderTarget[0];
         brt.BlendEnable = TRUE;
-        brt.SrcBlend = D3D11_BLEND_ONE; // premultiplied
+        brt.SrcBlend = D3D11_BLEND_ONE; 
         brt.DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
         brt.BlendOp = D3D11_BLEND_OP_ADD;
         brt.SrcBlendAlpha = D3D11_BLEND_ONE;
@@ -706,7 +664,7 @@ public:
         brt.RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
         device->CreateBlendState(&bd, &blendState);
 
-        // 11. Rasterizer
+        
         D3D11_RASTERIZER_DESC rd = {};
         rd.FillMode = D3D11_FILL_SOLID;
         rd.CullMode = D3D11_CULL_NONE;
@@ -717,14 +675,14 @@ public:
         return true;
     }
 
-    // Upload the CPU-side BGRA buffer to the staging texture, then draw a fullscreen
-    // quad with alpha blending onto the swap chain back buffer, then Present.
+    
+    
     void drawFrame(uint32_t* cpuBuf) {
-        // 1. Map staging texture and copy CPU buffer
+        
         D3D11_MAPPED_SUBRESOURCE mapped = {};
         HRESULT hr = context->Map(stagingTex, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
         if(FAILED(hr)) return;
-        // Copy row by row in case row pitch differs
+        
         UINT srcPitch = width * 4;
         if(mapped.RowPitch == srcPitch) {
             memcpy(mapped.pData, cpuBuf, (size_t)srcPitch * height);
@@ -735,11 +693,11 @@ public:
         }
         context->Unmap(stagingTex, 0);
 
-        // 2. Clear backbuffer to transparent black
+        
         float clear[4] = {0,0,0,0};
         context->ClearRenderTargetView(rtv, clear);
 
-        // 3. Bind pipeline
+        
         context->VSSetShader(vs, nullptr, 0);
         context->PSSetShader(ps, nullptr, 0);
         context->PSSetShaderResources(0, 1, &stagingSRV);
@@ -748,11 +706,11 @@ public:
         context->RSSetState(rasterState);
         context->OMSetRenderTargets(1, &rtv, nullptr);
 
-        // 4. Draw fullscreen triangle (3 verts, no vertex buffer)
+        
         context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         context->Draw(3, 0);
 
-        // 5. Present with vsync
+        
         swapChain->Present(1, 0);
     }
 
@@ -777,9 +735,6 @@ public:
     }
 };
 
-// ============================================================================
-// Global state for window/message loop
-// ============================================================================
 static D3D11Renderer* g_renderer = nullptr;
 static KursorFlame*   g_flame = nullptr;
 static HWND           g_hwnd = nullptr;
@@ -794,14 +749,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             PostQuitMessage(0);
             return 0;
         case WM_HOTKEY: {
-            // 1 = Ctrl+Alt+E (toggle), 2 = Ctrl+Alt+Q (quit)
+            
             if(wp == 1) {
                 g_enabled = !g_enabled;
                 if(g_enabled && g_flame) {
                     std::lock_guard<std::mutex> lk(g_flameMutex);
                     g_flame->config.load("kursor.conf");
                 }
-                std::cout << "[KursorFlame] Effect " << (g_enabled ? "enabled" : "disabled") << "\n";
             } else if(wp == 2) {
                 g_quit = true;
                 PostQuitMessage(0);
@@ -809,7 +763,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         }
         case WM_INPUT: {
-            // Raw input for mouse buttons and scroll wheel
+            
             UINT dwSize = 0;
             GetRawInputData((HRAWINPUT)lp, RID_INPUT, NULL, &dwSize, sizeof(RAWINPUTHEADER));
             if(dwSize == 0 || !g_flame) break;
@@ -823,11 +777,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 if(m.usButtonFlags & RI_MOUSE_RIGHT_BUTTON_DOWN){ std::lock_guard<std::mutex> lk(g_flameMutex); g_flame->on_click(true); }
                 if(m.usButtonFlags & RI_MOUSE_RIGHT_BUTTON_UP)  { std::lock_guard<std::mutex> lk(g_flameMutex); g_flame->on_click(false); }
                 if(m.usButtonFlags & RI_MOUSE_WHEEL) {
-                    // RAWMOUSE.usButtonData is a USHORT (16-bit) holding the signed wheel
-                    // delta directly (typically ±120 = WHEEL_DELTA). Do NOT use HIWORD()
-                    // here - HIWORD expects a 32-bit value and returns the upper 16 bits,
-                    // which are always 0 for a 16-bit usButtonData, so the sign is lost
-                    // and every scroll event looks like "scroll down". Cast directly.
+                    
+                    
+                    
+                    
+                    
                     SHORT delta = (SHORT)m.usButtonData;
                     std::lock_guard<std::mutex> lk(g_flameMutex);
                     g_flame->on_scroll(delta > 0 ? 1 : -1);
@@ -839,7 +793,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     return DefWindowProc(hwnd, msg, wp, lp);
 }
 
-// Create a transparent click-through topmost overlay window covering the whole screen.
 static HWND CreateOverlayWindow(int sw, int sh) {
     WNDCLASSEXW wc = {};
     wc.cbSize = sizeof(WNDCLASSEXW);
@@ -848,11 +801,11 @@ static HWND CreateOverlayWindow(int sw, int sh) {
     wc.lpszClassName = L"KursorFlameOverlay";
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     RegisterClassExW(&wc);
-    // WS_EX_NOREDIRECTIONBITMAP: GDI won't allocate a backbuffer, D3D11/DirectComposition draws directly
-    // WS_EX_TRANSPARENT: click-through (mouse events go to windows underneath)
-    // WS_EX_TOPMOST: stay on top
-    // WS_EX_TOOLWINDOW: don't show in taskbar
-    // WS_EX_LAYERED: required for DirectComposition per-pixel alpha
+    
+    
+    
+    
+    
     HWND hwnd = CreateWindowExW(
         WS_EX_NOREDIRECTIONBITMAP | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW,
         L"KursorFlameOverlay", L"KursorFlame",
@@ -864,7 +817,7 @@ static HWND CreateOverlayWindow(int sw, int sh) {
 }
 
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmdLine, int show) {
-    // 0a. Single-instance lock - prevents multiple KursorFlame processes
+    
     HANDLE hSingleMutex = CreateMutexW(NULL, TRUE, L"KursorFlame_v3_SingleInstance_Mutex");
     if(hSingleMutex == NULL || GetLastError() == ERROR_ALREADY_EXISTS){
         if(hSingleMutex) CloseHandle(hSingleMutex);
@@ -875,16 +828,16 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmdLine, int show) {
         return 0;
     }
 
-    // 0b. Verify CPU supports AVX2 (Intel Haswell 2013+ / AMD Ryzen 2017+)
-    // The binary is compiled with /arch:AVX2, so non-AVX2 CPUs would crash with
-    // an illegal instruction fault. Give a clean error instead.
+    
+    
+    
     {
         int cpuInfo[4];
         __cpuid(cpuInfo, 0);
         bool hasAVX2 = false;
         if(cpuInfo[0] >= 7){
             __cpuidex(cpuInfo, 7, 0);
-            hasAVX2 = (cpuInfo[1] & (1 << 5)) != 0; // AVX2 bit = ECX[5]
+            hasAVX2 = (cpuInfo[1] & (1 << 5)) != 0; 
         }
         if(!hasAVX2){
             ReleaseMutex(hSingleMutex);
@@ -897,92 +850,62 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmdLine, int show) {
         }
     }
 
-    // 1. Make process DPI-aware so screen coordinates are real pixels
+    
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
-    // 1b. Allocate a console window so the user can see version + diagnostics.
-    // The app is built with /SUBSYSTEM:WINDOWS so stdout normally goes nowhere.
-    // AllocConsole + redirecting stdin/stdout/stderr lets us print diagnostic
-    // info that the user can read to verify which build they're running.
-    AllocConsole();
-    freopen_s(reinterpret_cast<FILE**>(stdin), "CONIN$", "r", stdin);
-    freopen_s(reinterpret_cast<FILE**>(stdout), "CONOUT$", "w", stdout);
-    freopen_s(reinterpret_cast<FILE**>(stderr), "CONOUT$", "w", stderr);
-    SetConsoleTitleW(L"KursorFlame v3.0 - Diagnostics");
-    SetConsoleOutputCP(CP_UTF8);
-
-    std::cout << "==============================================\n";
-    std::cout << " KursorFlame v3.0.4 (build 626e76b+)\n";
-    std::cout << " Scroll-bleed-fix + single-instance + AVX2\n";
-    std::cout << "==============================================\n";
-    std::cout << "[KursorFlame] Single-instance lock: ACTIVE\n";
-    std::cout << "[KursorFlame] AVX2 runtime check: PASSED\n";
-    std::cout << "[KursorFlame] thread_local RNG: ENABLED\n";
-
-    // 2. Get full virtual screen dimensions (covers all monitors)
+    
     int sw = GetSystemMetrics(SM_CXVIRTUALSCREEN);
     int sh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
     if(sw <= 0 || sh <= 0) { sw = GetSystemMetrics(SM_CXSCREEN); sh = GetSystemMetrics(SM_CYSCREEN); }
-    std::cout << "[KursorFlame] Virtual screen: " << sw << "x" << sh << "\n";
-    std::cout << "[KursorFlame] CPU cores detected: " << std::thread::hardware_concurrency() << "\n";
-    std::cout << "[KursorFlame] CPU Multi-Core Renderer Enabled (uses all cores)\n";
-    std::cout << "[KursorFlame] Scroll color_override: DISABLED (fix applied)\n";
-    std::cout << "[KursorFlame] Hotkeys: Ctrl+Alt+E=toggle  Ctrl+Alt+Q=quit\n";
-    std::cout << "[KursorFlame] Close this console window to quit the app.\n";
-    std::cout << "==============================================\n";
 
-    // 3. Allocate CPU BGRA buffer
+    
     g_W = sw; g_H = sh;
     g_buf.resize((size_t)sw * sh, 0);
 
-    // 4. Create overlay window
+    
     g_hwnd = CreateOverlayWindow(sw, sh);
     if(!g_hwnd) { std::cerr << "Failed to create overlay window\n"; return 1; }
 
-    // 5. Init D3D11 + DirectComposition renderer
+    
     D3D11Renderer renderer;
     g_renderer = &renderer;
     if(!renderer.init(g_hwnd, sw, sh)) {
-        std::cerr << "D3D11 renderer init failed\n";
         return 1;
     }
 
-    // 6. Init particle engine
-    // IMPORTANT: KursorFlame contains PMatrix (30k particles, ~1.2 MB) and SmokePool
-    // (10k entries, ~200 KB) as value members. Total ~1.4 MB. The Windows default
-    // thread stack is only 1 MB, so a stack-local `KursorFlame flame;` immediately
-    // triggers STATUS_STACK_OVERFLOW (0xc00000fd) on entry to WinMain. Linux's default
-    // 8 MB stack hid this bug in kf2.5.cpp. Allocate on the heap to fix it.
+    
+    
+    
+    
+    
+    
     auto flamePtr = std::make_unique<KursorFlame>();
     KursorFlame& flame = *flamePtr;
     g_flame = flamePtr.get();
     POINT cp; GetCursorPos(&cp);
     flame.init(sw, sh, (float)cp.x, (float)cp.y);
 
-    // 7. Register global hotkeys: Ctrl+Alt+E (toggle), Ctrl+Alt+Q (quit)
+    
     if(!RegisterHotKey(g_hwnd, 1, MOD_CONTROL | MOD_ALT, 'E')) {
-        std::cerr << "[Warning] Failed to register Ctrl+Alt+E hotkey\n";
     }
     if(!RegisterHotKey(g_hwnd, 2, MOD_CONTROL | MOD_ALT, 'Q')) {
-        std::cerr << "[Warning] Failed to register Ctrl+Alt+Q hotkey\n";
     }
 
-    // 8. Register for raw mouse input (buttons + wheel; movement uses GetCursorPos)
+    
     RAWINPUTDEVICE rid;
     rid.usUsagePage = 0x01;
-    rid.usUsage = 0x02; // mouse
+    rid.usUsage = 0x02; 
     rid.dwFlags = RIDEV_INPUTSINK;
     rid.hwndTarget = g_hwnd;
     if(!RegisterRawInputDevices(&rid, 1, sizeof(rid))) {
-        std::cerr << "[Warning] RegisterRawInputDevices failed\n";
     }
 
-    // 9. Main loop - 60 FPS render, 120 FPS sim
+    
     auto lastUpdate = std::chrono::steady_clock::now();
     auto lastRender = lastUpdate;
     MSG msg = {};
     while(!g_quit) {
-        // Process all pending window messages (non-blocking)
+        
         while(PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
             TranslateMessage(&msg);
             DispatchMessage(&msg);
@@ -992,7 +915,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmdLine, int show) {
 
         if(g_enabled) {
             auto now = std::chrono::steady_clock::now();
-            // Update mouse position + sim at ~120 FPS (8ms)
+            
             if(std::chrono::duration_cast<std::chrono::milliseconds>(now - lastUpdate).count() >= 8) {
                 POINT p; GetCursorPos(&p);
                 std::lock_guard<std::mutex> lk(g_flameMutex);
@@ -1000,7 +923,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmdLine, int show) {
                 flame.cursor_tick();
                 lastUpdate = now;
             }
-            // Render at ~60 FPS (16ms)
+            
             if(std::chrono::duration_cast<std::chrono::milliseconds>(now - lastRender).count() >= 16) {
                 std::lock_guard<std::mutex> lk(g_flameMutex);
                 flame.update_tick();
@@ -1009,7 +932,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmdLine, int show) {
                 lastRender = now;
             }
         } else {
-            // When disabled, clear the overlay so the screen is clean
+            
             auto now = std::chrono::steady_clock::now();
             if(std::chrono::duration_cast<std::chrono::milliseconds>(now - lastRender).count() >= 33) {
                 renderClear();
@@ -1020,7 +943,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmdLine, int show) {
         Sleep(1);
     }
 
-    // 10. Cleanup
+    
     UnregisterHotKey(g_hwnd, 1);
     UnregisterHotKey(g_hwnd, 2);
     if(g_hwnd) DestroyWindow(g_hwnd);
@@ -1030,4 +953,3 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmdLine, int show) {
     CloseHandle(hSingleMutex);
     return 0;
 }
-

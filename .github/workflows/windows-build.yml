@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main, windows-native-v3, "**" ]
     paths:
-      - 'kf3.cpp'
+      - 'src/windows/cpp/kursorflame_v3.cpp'
       - 'kursor.conf'
       - 'run.bat'
       - 'kill.bat'
@@ -51,7 +51,7 @@ jobs:
              /arch:AVX2 /fp:fast /Oi /Ot /Oy /Qpar /GL ^
              /D_CRT_SECURE_NO_WARNINGS /DUNICODE /D_UNICODE ^
              /Fe:KursorFlame.exe ^
-             kf3.cpp ^
+             src\windows\cpp\kursorflame_v3.cpp ^
              /link /SUBSYSTEM:WINDOWS /MACHINE:X64 /NOLOGO ^
              /STACK:8388608 /LTCG ^
              d3d11.lib dxgi.lib dxguid.lib d3dcompiler.lib ^
@@ -97,13 +97,13 @@ jobs:
           if exist README.md copy /Y README.md staging\
           dir staging
 
-      - name: Zip staging folder into KursorFlame_windows_v3.zip
+      - name: Zip staging folder into KursorFlame_windows_v2.5.zip
         shell: pwsh
         run: |
           Compress-Archive -Path "$env:GITHUB_WORKSPACE\staging\*" `
-                            -DestinationPath "$env:GITHUB_WORKSPACE\KursorFlame_windows_v3.zip" `
+                            -DestinationPath "$env:GITHUB_WORKSPACE\KursorFlame_windows_v2.5.zip" `
                             -CompressionLevel Optimal
-          Get-ChildItem "$env:GITHUB_WORKSPACE\KursorFlame_windows_v3.zip" | Select-Object Name,Length
+          Get-ChildItem "$env:GITHUB_WORKSPACE\KursorFlame_windows_v2.5.zip" | Select-Object Name,Length
 
       - name: Compute SHA-256 of the executable
         shell: pwsh
@@ -122,12 +122,12 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Upload KursorFlame_windows_v3.zip artifact
+      - name: Upload KursorFlame_windows_v2.5.zip artifact
         uses: actions/upload-artifact@v4
         with:
-          name: KursorFlame_windows_v3_zip
+          name: KursorFlame_windows_v2.5_zip
           path: |
-            KursorFlame_windows_v3.zip
+            KursorFlame_windows_v2.5.zip
             sha256.txt
           if-no-files-found: error
           retention-days: 30
