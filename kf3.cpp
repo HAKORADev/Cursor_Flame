@@ -29,6 +29,7 @@
 #include <mutex>
 #include <atomic>
 #include <memory>
+#include <intrin.h>   // __cpuid / __cpuidex for AVX2 runtime detection
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
@@ -203,7 +204,11 @@ struct AppConfig {
 // ============================================================================
 enum class State { NORMAL, BURNOUT, FIREBALL };
 enum class BurnoutPhase { NONE, PHASE_1, PHASE_2, PHASE_3, PHASE_4 };
-static std::mt19937 g_rng([]{ std::random_device rd; return rd(); }());
+// Thread-local RNG: the particle update loop runs across all CPU cores via
+// ThreadPool::parallel_for. A single global mt19937 would cause a data race.
+// thread_local gives each worker its own generator - both faster (no contention)
+// and correct.
+static thread_local std::mt19937 g_rng([]{ std::random_device rd; return rd(); }());
 static inline float randf(float lo, float hi) { return std::uniform_real_distribution<float>(lo, hi)(g_rng); }
 static inline float randf01() { return std::uniform_real_distribution<float>(0.0f, 1.0f)(g_rng); }
 
@@ -351,11 +356,13 @@ public:
         if(!config.on_scroll)return;
         if(dy!=0){
             float svy=-dy*Cfg::SPAWN_SCROLL_SENS;
-            color_override=C4(config.scroll_r, config.scroll_g, config.scroll_b, config.scroll_a);
-            color_override_t=1.f; color_decay=0.08f;
-            // 20 directional particles (was 8) + 6 sparks for a clearly visible burst
-            for(int i=0;i<20;i++)_spawn_scroll_particle(cx+randf(-30,30),cy+randf(-30,30),svy);
-            for(int i=0;i<6;i++)_spawn_spark(cx+randf(-20,20),cy+randf(-20,20));
+            // Do NOT set color_override here. Scroll particles already receive
+            // their color via the is_scroll flag in _color(). Setting color_override
+            // would lerp ALL particles toward the scroll color - the bug where
+            // 'the others turn yellow for a moment'. Only scroll particles should
+            // carry the scroll color; everything else keeps its own color.
+            for(int i=0;i<24;i++)_spawn_scroll_particle(cx+randf(-30,30),cy+randf(-30,30),svy);
+            for(int i=0;i<8;i++)_spawn_spark(cx+randf(-20,20),cy+randf(-20,20));
         }
     }
     void cursor_tick(){vx=cx-px;vy=cy-py;speed=sqrtf(vx*vx+vy*vy);px=cx;py=cy;_update_state();}
@@ -375,7 +382,11 @@ public:
         if(wind_timer>0){wind_timer--;wind_x*=0.95f;wind_y*=0.95f;}else{wind_x=wind_y=0;}
         if(p.count()>0){if(duration_start<0)duration_start=frame_count;}else{duration_start=-1;}
         _interp_spawn();_spawn_mode();
-        float bg=(config.theme==1)?0.015f*config.gravity_mult:(config.theme==2)?0.002f*config.gravity_mult:-0.025f*config.gravity_mult;
+        // Theme-specific base gravity:
+        //   Fire  (0): -0.028  - strong upward rise (hot air)
+        //   Snow  (1):  0.006  - slow gentle fall (was 0.015, too fast)
+        //   Water (2):  0.004  - slow flow downward (liquid, not free-fall)
+        float bg=(config.theme==1)?0.006f*config.gravity_mult:(config.theme==2)?0.004f*config.gravity_mult:-0.028f*config.gravity_mult;
         float tr=(config.quality==4)?(0.1f*config.q_jitter_int*config.flicker_mult):(config.quality>0?(0.1f*config.quality*config.flicker_mult):0.f);
         // Multi-core particle update - split PMatrix::SIZE across all cores
         ThreadPool::parallel_for(0, PMatrix::SIZE, 1024, [&](int s, int e){
@@ -384,7 +395,11 @@ public:
                 p.vx[i]+=config.wind_x;p.vy[i]+=config.wind_y;p.x[i]+=p.vx[i]+wind_x;p.y[i]+=p.vy[i]+wind_y;
                 p.x[i]+=sinf(frame_count*0.1f+i)*0.3f*config.flicker_mult;
                 if(config.quality==4 && config.wave_amp != 0.0f) { p.x[i] += sinf(p.life[i] * 10.0f * config.wave_freq + p.wave_offset[i]) * config.wave_amp; }
-                p.vx[i]*=0.98f; p.vy[i]*=0.98f; p.vy[i]+=bg;
+                // Theme-specific physics
+                if(config.theme==2){ p.vx[i]*=0.94f; p.vy[i]*=0.96f; } // water: viscous damping (liquid feel)
+                else { p.vx[i]*=0.98f; p.vy[i]*=0.98f; }                 // fire/snow: normal drag
+                p.vy[i]+=bg;
+                if(config.theme==1){ p.x[i]+=sinf(frame_count*0.02f+p.wave_offset[i])*0.4f; } // snow: gentle lateral drift
                 if(config.interactive_edges){if(p.x[i]<0){p.x[i]=0;p.vx[i]=fabsf(p.vx[i])*0.5f;}if(p.x[i]>screen_width){p.x[i]=screen_width;p.vx[i]=-fabsf(p.vx[i])*0.5f;}if(p.y[i]<0){p.y[i]=0;p.vy[i]=fabsf(p.vy[i])*0.5f;}if(p.y[i]>screen_height){p.y[i]=screen_height;p.vy[i]=-fabsf(p.vy[i])*0.5f;}}
                 if(p.life[i]<=0)p.kill(i);
             }
@@ -417,11 +432,41 @@ private:
     }
     void _drawSoftBlobRegion(float x,float y,float s,const C4& c,int ry0,int ry1){
         if(s<=0.f)return; int iy0=std::max(ry0,(int)(y-s)),iy1=std::min(ry1-1,(int)(y+s+1)),ix0=std::max(0,(int)(x-s)),ix1=std::min(g_W-1,(int)(x+s+1));
-        float r2=s*s,ir2=1.f/r2;for(int py=iy0;py<=iy1;py++){float dy2=(py+0.5f-y)*(py+0.5f-y);for(int px=ix0;px<=ix1;px++){float d2=(px+0.5f-x)*(px+0.5f-x)+dy2;if(d2<r2){float it=powf(1.f-sqrtf(d2*ir2),2.f);blendAdd(px,py,c.r,c.g,c.b,c.a*it);}}}
+        float r2=s*s,ir2=1.f/r2;
+        bool water=(config.theme==2); // water: alpha blend for glassy, non-stacking look
+        for(int py=iy0;py<=iy1;py++){
+            float dy2=(py+0.5f-y)*(py+0.5f-y);
+            #pragma loop(ivdep)
+            for(int px=ix0;px<=ix1;px++){
+                float d2=(px+0.5f-x)*(px+0.5f-x)+dy2;
+                if(d2<r2){
+                    float d=sqrtf(d2*ir2);
+                    float t=1.f-d;
+                    float it=t*t*t; // cubic falloff - smoother alpha gradient at edges
+                    float a=c.a*it;
+                    if(water) blendAlpha(px,py,c.r,c.g,c.b,a);
+                    else blendAdd(px,py,c.r,c.g,c.b,a);
+                }
+            }
+        }
     }
     void _drawShadedRegion(float x,float y,float s,const C4& c,int ry0,int ry1){
         if(s<=0.f)return; int iy0=std::max(ry0,(int)(y-s)),iy1=std::min(ry1-1,(int)(y+s+1)),ix0=std::max(0,(int)(x-s)),ix1=std::min(g_W-1,(int)(x+s+1));
-        float r2=s*s,ir2=1.f/r2;for(int py=iy0;py<=iy1;py++){float dy2=(py+0.5f-y)*(py+0.5f-y);for(int px=ix0;px<=ix1;px++){float d2=(px+0.5f-x)*(px+0.5f-x)+dy2;if(d2<r2){float it=1.f-sqrtf(d2*ir2);blendAdd(px,py,c.r,c.g,c.b,c.a*it);}}}
+        float r2=s*s,ir2=1.f/r2;
+        bool water=(config.theme==2);
+        for(int py=iy0;py<=iy1;py++){
+            float dy2=(py+0.5f-y)*(py+0.5f-y);
+            #pragma loop(ivdep)
+            for(int px=ix0;px<=ix1;px++){
+                float d2=(px+0.5f-x)*(px+0.5f-x)+dy2;
+                if(d2<r2){
+                    float it=1.f-sqrtf(d2*ir2);
+                    float a=c.a*it;
+                    if(water) blendAlpha(px,py,c.r,c.g,c.b,a);
+                    else blendAdd(px,py,c.r,c.g,c.b,a);
+                }
+            }
+        }
     }
     void _drawSmokeRegion(float sx,float sy,float l,float s,int ry0,int ry1){
         bool alpha = (config.quality == 4) ? (config.q_smoke_blend == 1) : (config.quality > 1);
@@ -437,7 +482,8 @@ private:
         float ty=gcy-hh*s,by=gcy+hh*0.5f,tr=hw*0.15f;float pts[6][2]={{gcx,ty},{gcx-hw+tr,gcy-hh*0.3f*s},{gcx-hw,by},{gcx,by+hh*0.2f},{gcx+hw,by},{gcx+hw-tr,gcy-hh*0.3f*s}};
         float minX=pts[0][0],maxX=pts[0][0],minY=pts[0][1],maxY=pts[0][1];for(int i=1;i<6;i++){minX=std::min(minX,pts[i][0]);maxX=std::max(maxX,pts[i][0]);minY=std::min(minY,pts[i][1]);maxY=std::max(maxY,pts[i][1]);}
         int iy0=std::max(ry0,(int)minY-1),iy1=std::min(ry1-1,(int)maxY+1);float ig=hw*1.2f>0.f?1.f/(hw*1.2f):0.f;C4 s0(c.r,c.g,c.b,std::min(255.f,c.a*1.2f)),s1=c,s2(c.r,c.g,c.b,c.a*0.3f);
-        for(int iy=iy0;iy<=iy1;iy++){float fy=iy+0.5f,xs[8];int nx=0;for(int i=0;i<6;i++){int j=(i+1)%6;float ya=pts[i][1],yb=pts[j][1],xa=pts[i][0],xb=pts[j][0];if((fy>=ya&&fy<yb)||(fy>=yb&&fy<ya)){float t=(fy-ya)/(yb-ya);if(nx<8)xs[nx++]=xa+t*(xb-xa);}}if(nx<2)continue;std::sort(xs,xs+nx);for(int k=0;k+1<nx;k+=2){int ix0=std::max(0,(int)xs[k]),ix1=std::min(g_W-1,(int)xs[k+1]);for(int ix=ix0;ix<=ix1;ix++){float dx=ix+0.5f-gcx,dy=fy-gcy,t=sqrtf(dx*dx+dy*dy)*ig;C4 cl=evalTeardropGrad(s0,s1,s2,t);if(cl.a>=1.f)blendAdd(ix,iy,cl.r,cl.g,cl.b,cl.a);}}}
+        bool water=(config.theme==2);
+        for(int iy=iy0;iy<=iy1;iy++){float fy=iy+0.5f,xs[8];int nx=0;for(int i=0;i<6;i++){int j=(i+1)%6;float ya=pts[i][1],yb=pts[j][1],xa=pts[i][0],xb=pts[j][0];if((fy>=ya&&fy<yb)||(fy>=yb&&fy<ya)){float t=(fy-ya)/(yb-ya);if(nx<8)xs[nx++]=xa+t*(xb-xa);}}if(nx<2)continue;std::sort(xs,xs+nx);for(int k=0;k+1<nx;k+=2){int ix0=std::max(0,(int)xs[k]),ix1=std::min(g_W-1,(int)xs[k+1]);for(int ix=ix0;ix<=ix1;ix++){float dx=ix+0.5f-gcx,dy=fy-gcy,t=sqrtf(dx*dx+dy*dy)*ig;C4 cl=evalTeardropGrad(s0,s1,s2,t);if(cl.a>=1.f){if(water)blendAlpha(ix,iy,cl.r,cl.g,cl.b,cl.a);else blendAdd(ix,iy,cl.r,cl.g,cl.b,cl.a);}}}}
     }
     C4 _color(float l,float it,float e,bool s){
         C4 res; if(s){ if(config.theme==1) res=C4(255,255,255,l*config.overall_opacity*e); else if(config.theme==2) res=C4(50,150,255,l*config.overall_opacity*e); else res=C4(config.scroll_r, config.scroll_g, config.scroll_b, l*config.scroll_a*e); }
@@ -452,7 +498,7 @@ private:
             res = cmatrix_get(virtual_t, config.custom_gradient, 10, config.gradient_speed);
             res.a = l * config.overall_opacity * e;
         }
-        else { float r,g,b; if(l>0.8f){r=255;g=220+35*(l-0.8f)*4.17f;b=150+105*(l-0.8f)*4.17f;}else if(l>0.6f){r=255;g=150+70*(l-0.6f)*3.33f;b=50+50*(l-0.6f)*1.67f;}else if(l>0.4f){r=230+25*(l-0.4f)*1.25f;g=80+70*(l-0.4f)*1.25f;b=25+25*(l-0.4f);}else if(l>0.2f){r=180+50*(l-0.2f)*2.5f;g=40+40*(l-0.2f)*2.f;b=25*(l-0.2f);}else{r=80+100*l;g=20*l;b=0;}
+        else { float r,g,b; if(l>0.85f){r=255;g=255;b=200+55*(l-0.85f)*6.67f;}else if(l>0.8f){r=255;g=220+35*(l-0.8f)*4.17f;b=150+105*(l-0.8f)*4.17f;}else if(l>0.6f){r=255;g=150+70*(l-0.6f)*3.33f;b=50+50*(l-0.6f)*1.67f;}else if(l>0.4f){r=230+25*(l-0.4f)*1.25f;g=80+70*(l-0.4f)*1.25f;b=25+25*(l-0.4f);}else if(l>0.2f){r=180+50*(l-0.2f)*2.5f;g=40+40*(l-0.2f)*2.f;b=25*(l-0.2f);}else{r=80+100*l;g=20*l;b=0;}
             float elapsed=0; if(duration_start>=0) elapsed=(frame_count-duration_start)/60.f;
             C4 base=cmatrix_get(elapsed, KEYFRAMES, 6, 60.0f); r=std::min(255.f,r*base.r/255.f);g=std::min(255.f,g*base.g/255.f);b=std::min(255.f,b*base.b/255.f); res=C4(r,g,b,l*config.overall_opacity*e); }
         if(color_override_t>0){res=c4lerp(res,color_override,color_override_t);} return c4clamp(res);
@@ -815,6 +861,39 @@ static HWND CreateOverlayWindow(int sw, int sh) {
 }
 
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmdLine, int show) {
+    // 0a. Single-instance lock - prevents multiple KursorFlame processes
+    HANDLE hSingleMutex = CreateMutexW(NULL, TRUE, L"KursorFlame_v3_SingleInstance_Mutex");
+    if(hSingleMutex == NULL || GetLastError() == ERROR_ALREADY_EXISTS){
+        if(hSingleMutex) CloseHandle(hSingleMutex);
+        MessageBoxW(NULL,
+            L"KursorFlame is already running.\n\n"
+            L"Use Ctrl+Alt+E to toggle the effect or Ctrl+Alt+Q to quit the existing instance.",
+            L"KursorFlame", MB_OK | MB_ICONINFORMATION);
+        return 0;
+    }
+
+    // 0b. Verify CPU supports AVX2 (Intel Haswell 2013+ / AMD Ryzen 2017+)
+    // The binary is compiled with /arch:AVX2, so non-AVX2 CPUs would crash with
+    // an illegal instruction fault. Give a clean error instead.
+    {
+        int cpuInfo[4];
+        __cpuid(cpuInfo, 0);
+        bool hasAVX2 = false;
+        if(cpuInfo[0] >= 7){
+            __cpuidex(cpuInfo, 7, 0);
+            hasAVX2 = (cpuInfo[1] & (1 << 5)) != 0; // AVX2 bit = ECX[5]
+        }
+        if(!hasAVX2){
+            ReleaseMutex(hSingleMutex);
+            CloseHandle(hSingleMutex);
+            MessageBoxW(NULL,
+                L"This program requires a CPU with AVX2 support\n"
+                L"(Intel Haswell 2013+ or AMD Ryzen 2017+).",
+                L"KursorFlame - CPU not supported", MB_OK | MB_ICONERROR);
+            return 1;
+        }
+    }
+
     // 1. Make process DPI-aware so screen coordinates are real pixels
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
@@ -921,6 +1000,8 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmdLine, int show) {
     if(g_hwnd) DestroyWindow(g_hwnd);
     renderer.shutdown();
     UnregisterClassW(L"KursorFlameOverlay", GetModuleHandle(NULL));
+    ReleaseMutex(hSingleMutex);
+    CloseHandle(hSingleMutex);
     return 0;
 }
 

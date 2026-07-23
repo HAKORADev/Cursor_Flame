@@ -43,21 +43,39 @@ jobs:
           echo === Windows SDK lib path ===
           echo %LIB%
 
-      - name: Compile KursorFlame.exe (Release x64, MSVC)
+      - name: Compile KursorFlame.exe (Release x64, MSVC, AVX2+LTCG)
         shell: cmd
         run: |
           cd /d "%GITHUB_WORKSPACE%"
           cl /nologo /O2 /EHsc /std:c++17 /utf-8 ^
+             /arch:AVX2 /fp:fast /Oi /Ot /Oy /Qpar /GL ^
              /D_CRT_SECURE_NO_WARNINGS /DUNICODE /D_UNICODE ^
              /Fe:KursorFlame.exe ^
              kf3.cpp ^
              /link /SUBSYSTEM:WINDOWS /MACHINE:X64 /NOLOGO ^
-             /STACK:8388608 ^
+             /STACK:8388608 /LTCG ^
              d3d11.lib dxgi.lib dxguid.lib d3dcompiler.lib ^
              user32.lib gdi32.lib dwmapi.lib dcomp.lib ^
              ole32.lib shell32.lib shlwapi.lib
           if errorlevel 1 exit /b 1
           dir KursorFlame.exe
+
+      - name: Verify 64-bit executable + AVX2 codegen
+        shell: cmd
+        run: |
+          cd /d "%GITHUB_WORKSPACE%"
+          echo === PE header machine type ===
+          dumpbin /headers KursorFlame.exe | findstr /C:"machine"
+          echo === Confirming x64 (8664) ===
+          dumpbin /headers KursorFlame.exe | findstr /C:"8664 machine"
+          if errorlevel 1 (
+            echo ERROR: KursorFlame.exe is NOT 64-bit!
+            exit /b 1
+          )
+          echo OK: KursorFlame.exe is 64-bit (x86-64)
+          echo === AVX2 instruction check (sample) ===
+          dumpbin /disasm KursorFlame.exe | findstr /C:"vpmul" > avx2_check.txt
+          for /f %%A in ("avx2_check.txt") do echo AVX2 instructions found: %%~zA bytes of disasm matches
 
       - name: Generate default kursor.conf (will be auto-created on first run anyway)
         shell: cmd
@@ -131,4 +149,11 @@ jobs:
           Write-Host "  - CPU cores: thread pool uses std::thread::hardware_concurrency() workers"
           Write-Host "    Particle sim + rasterization split across all cores (replaces 2-core std::async)"
           Write-Host "  - Native: Win32 + Raw Input + RegisterHotKey, no Linux/X11 code"
+          Write-Host "  - Intel Haswell optimization: /arch:AVX2 enables AVX2 + FMA3 + BMI2"
+          Write-Host "    Thread-local RNG eliminates data races across worker threads"
+          Write-Host "  - Single-instance lock via named mutex prevents duplicate processes"
+          Write-Host "  - Theme physics: Fire (hot core, strong rise), Snow (drift, slow fall),"
+          Write-Host "    Water (alpha blend, viscous damping - glassy, no color stacking)"
+          Write-Host "  - Compiler: /O2 /fp:fast /Oi /Ot /Oy /Qpar /GL + /LTCG (whole-program opt)"
+          Write-Host "  - Scroll fix: color_override removed - scroll particles use own color only"
           Write-Host "=============================================="
