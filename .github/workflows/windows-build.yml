@@ -60,7 +60,7 @@ jobs:
           if errorlevel 1 exit /b 1
           dir KursorFlame.exe
 
-      - name: Verify 64-bit executable + AVX2 codegen
+      - name: Verify 64-bit executable
         shell: cmd
         run: |
           cd /d "%GITHUB_WORKSPACE%"
@@ -73,9 +73,6 @@ jobs:
             exit /b 1
           )
           echo OK: KursorFlame.exe is 64-bit (x86-64)
-          echo === AVX2 instruction check (sample) ===
-          dumpbin /disasm KursorFlame.exe | findstr /C:"vpmul" > avx2_check.txt
-          for /f %%A in ("avx2_check.txt") do echo AVX2 instructions found: %%~zA bytes of disasm matches
 
       - name: Generate default kursor.conf (will be auto-created on first run anyway)
         shell: cmd
