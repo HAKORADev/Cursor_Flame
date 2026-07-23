@@ -49,7 +49,6 @@ jobs:
           cd /d "%GITHUB_WORKSPACE%"
           cl /nologo /O2 /EHsc /std:c++17 /utf-8 ^
              /D_CRT_SECURE_NO_WARNINGS /DUNICODE /D_UNICODE ^
-             /DWIN32_LEAN_AND_MEAN /DNOMINMAX ^
              /Fe:KursorFlame.exe ^
              kf3.cpp ^
              /link /SUBSYSTEM:WINDOWS /MACHINE:X64 /NOLOGO ^

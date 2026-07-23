@@ -564,7 +564,12 @@ public:
         if(FAILED(hr)) { std::cerr << "CreateRenderTargetView failed: 0x" << std::hex << hr << std::dec << "\n"; return false; }
 
         // 6. Create DirectComposition device + visual + target (binds swap chain to hwnd)
-        hr = DCompositionCreateDevice(device, __uuidof(IDCompositionDevice), (void**)&dcompDevice);
+        // DCompositionCreateDevice needs an IDXGIDevice*, so QI the D3D11 device for it.
+        IDXGIDevice* dxgiDevice = nullptr;
+        hr = device->QueryInterface(__uuidof(IDXGIDevice), (void**)&dxgiDevice);
+        if(FAILED(hr) || !dxgiDevice) { std::cerr << "QI IDXGIDevice failed: 0x" << std::hex << hr << std::dec << "\n"; return false; }
+        hr = DCompositionCreateDevice(dxgiDevice, __uuidof(IDCompositionDevice), (void**)&dcompDevice);
+        dxgiDevice->Release();
         if(FAILED(hr)) { std::cerr << "DCompositionCreateDevice failed: 0x" << std::hex << hr << std::dec << "\n"; return false; }
         hr = dcompDevice->CreateTargetForHwnd(hwnd, TRUE, &dcompTarget);
         if(FAILED(hr)) { std::cerr << "CreateTargetForHwnd failed: 0x" << std::hex << hr << std::dec << "\n"; return false; }
@@ -759,21 +764,21 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
 // Create a transparent click-through topmost overlay window covering the whole screen.
 static HWND CreateOverlayWindow(int sw, int sh) {
-    WNDCLASSEX wc = {};
-    wc.cbSize = sizeof(WNDCLASSEX);
+    WNDCLASSEXW wc = {};
+    wc.cbSize = sizeof(WNDCLASSEXW);
     wc.lpfnWndProc = WindowProc;
     wc.hInstance = GetModuleHandle(NULL);
-    wc.lpszClassName = "KursorFlameOverlay";
+    wc.lpszClassName = L"KursorFlameOverlay";
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-    RegisterClassEx(&wc);
+    RegisterClassExW(&wc);
     // WS_EX_NOREDIRECTIONBITMAP: GDI won't allocate a backbuffer, D3D11/DirectComposition draws directly
     // WS_EX_TRANSPARENT: click-through (mouse events go to windows underneath)
     // WS_EX_TOPMOST: stay on top
     // WS_EX_TOOLWINDOW: don't show in taskbar
     // WS_EX_LAYERED: required for DirectComposition per-pixel alpha
-    HWND hwnd = CreateWindowEx(
+    HWND hwnd = CreateWindowExW(
         WS_EX_NOREDIRECTIONBITMAP | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW,
-        "KursorFlameOverlay", "KursorFlame",
+        L"KursorFlameOverlay", L"KursorFlame",
         WS_POPUP,
         0, 0, sw, sh,
         NULL, NULL, GetModuleHandle(NULL), NULL);
@@ -881,7 +886,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmdLine, int show) {
     UnregisterHotKey(g_hwnd, 2);
     if(g_hwnd) DestroyWindow(g_hwnd);
     renderer.shutdown();
-    UnregisterClass("KursorFlameOverlay", GetModuleHandle(NULL));
+    UnregisterClassW(L"KursorFlameOverlay", GetModuleHandle(NULL));
     return 0;
 }
 
