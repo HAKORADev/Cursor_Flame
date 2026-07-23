@@ -28,6 +28,7 @@
 #include <future>
 #include <mutex>
 #include <atomic>
+#include <memory>
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
@@ -815,8 +816,14 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmdLine, int show) {
     }
 
     // 6. Init particle engine
-    KursorFlame flame;
-    g_flame = &flame;
+    // IMPORTANT: KursorFlame contains PMatrix (30k particles, ~1.2 MB) and SmokePool
+    // (10k entries, ~200 KB) as value members. Total ~1.4 MB. The Windows default
+    // thread stack is only 1 MB, so a stack-local `KursorFlame flame;` immediately
+    // triggers STATUS_STACK_OVERFLOW (0xc00000fd) on entry to WinMain. Linux's default
+    // 8 MB stack hid this bug in kf2.5.cpp. Allocate on the heap to fix it.
+    auto flamePtr = std::make_unique<KursorFlame>();
+    KursorFlame& flame = *flamePtr;
+    g_flame = flamePtr.get();
     POINT cp; GetCursorPos(&cp);
     flame.init(sw, sh, (float)cp.x, (float)cp.y);
 

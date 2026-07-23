@@ -52,6 +52,7 @@ jobs:
              /Fe:KursorFlame.exe ^
              kf3.cpp ^
              /link /SUBSYSTEM:WINDOWS /MACHINE:X64 /NOLOGO ^
+             /STACK:8388608 ^
              d3d11.lib dxgi.lib dxguid.lib d3dcompiler.lib ^
              user32.lib gdi32.lib dwmapi.lib dcomp.lib ^
              ole32.lib shell32.lib shlwapi.lib
