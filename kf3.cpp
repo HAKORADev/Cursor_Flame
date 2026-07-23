@@ -317,7 +317,19 @@ public:
         p.spawn(i,x,y,cosf(a)*sp*randf(0.3f,0.8f),sinf(a)*sp,1.f,randf(8,20)*it*psz,s);
         p.max_life[i]=decay;
     }
-    void _spawn_scroll_particle(float x,float y,float svy){int i=pidx;pidx=(pidx+1)%PMatrix::SIZE;float psz=(config.quality==4)?config.q_particle_size*config.tail_thick_mult:1.0f;p.spawn(i,x,y,randf(-1,1)*fabsf(svy),svy+randf(-0.5f,0.5f),1.f,randf(10,18)*psz,true);p.max_life[i]=randf(0.02f,0.04f);}
+    void _spawn_scroll_particle(float x,float y,float svy){
+        int i=pidx;pidx=(pidx+1)%PMatrix::SIZE;
+        float psz=(config.quality==4)?config.q_particle_size*config.tail_thick_mult:1.0f;
+        // Wider horizontal spread + stronger vertical thrust so the burst is clearly directional
+        float spread = fabsf(svy)*1.5f;
+        p.spawn(i,x,y,
+            randf(-1,1)*spread,                       // vx: wider lateral spread
+            svy*1.3f+randf(-0.5f,0.5f),               // vy: stronger vertical thrust in scroll direction
+            1.f,
+            randf(12,22)*psz,                          // larger particles for visibility
+            true);
+        p.max_life[i]=randf(0.012f,0.022f);            // slower decay => longer life (~0.7-1.2s)
+    }
     void _start_lightning_effect(){
         if(config.theme==1){ for(int i=0;i<40;i++){float a=randf(0,6.28f),s=randf(2,8);_spawn_particle(cx,cy,cosf(a)*s,sinf(a)*s,1.5f,2.f);} }
         else if(config.theme==2){ for(int i=0;i<30;i++){float a=randf(0,6.28f),s=randf(1,5);_spawn_particle(cx,cy,cosf(a)*s,sinf(a)*s,1.2f,1.5f);} }
@@ -335,7 +347,17 @@ public:
         }else if(!pr&&mouse_down){burnout_active=0;burnout_transition=0;state=State::NORMAL;burnout_phase=BurnoutPhase::NONE;phase_start_time=0;}
         mouse_down=pr;
     }
-    void on_scroll(int dy){if(!config.on_scroll)return; if(dy!=0){float svy=-dy*Cfg::SPAWN_SCROLL_SENS; color_override=C4(config.scroll_r, config.scroll_g, config.scroll_b, config.scroll_a); color_override_t=1.f; color_decay=0.1f; for(int i=0;i<8;i++)_spawn_scroll_particle(cx+randf(-30,30),cy+randf(-30,30),svy);}}
+    void on_scroll(int dy){
+        if(!config.on_scroll)return;
+        if(dy!=0){
+            float svy=-dy*Cfg::SPAWN_SCROLL_SENS;
+            color_override=C4(config.scroll_r, config.scroll_g, config.scroll_b, config.scroll_a);
+            color_override_t=1.f; color_decay=0.08f;
+            // 20 directional particles (was 8) + 6 sparks for a clearly visible burst
+            for(int i=0;i<20;i++)_spawn_scroll_particle(cx+randf(-30,30),cy+randf(-30,30),svy);
+            for(int i=0;i<6;i++)_spawn_spark(cx+randf(-20,20),cy+randf(-20,20));
+        }
+    }
     void cursor_tick(){vx=cx-px;vy=cy-py;speed=sqrtf(vx*vx+vy*vy);px=cx;py=cy;_update_state();}
     void _interp_spawn(){if(!config.tail||speed<20.f)return;int st=std::min((int)(speed/8.f),50);for(int i=0;i<st;i++){float t=(i+1.f)/(st+1.f);_spawn_particle(cx-vx*t,cy-vy*t,vx,vy,0.6f+std::min(0.9f,speed/25.f),1.f);}}
     void _spawn_normal(){if(!config.tail&&speed>1.f)return;int c=(int)(Cfg::SPAWN_BASE*std::min(2.5f,speed/12.f));for(int i=0;i<c;i++)_spawn_particle(cx+randf(-15,15),cy+randf(-10,10),vx,vy,0.6f+std::min(0.9f,speed/25.f),1.f);}
@@ -752,7 +774,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 if(m.usButtonFlags & RI_MOUSE_RIGHT_BUTTON_DOWN){ std::lock_guard<std::mutex> lk(g_flameMutex); g_flame->on_click(true); }
                 if(m.usButtonFlags & RI_MOUSE_RIGHT_BUTTON_UP)  { std::lock_guard<std::mutex> lk(g_flameMutex); g_flame->on_click(false); }
                 if(m.usButtonFlags & RI_MOUSE_WHEEL) {
-                    SHORT delta = (SHORT)HIWORD(m.usButtonData);
+                    // RAWMOUSE.usButtonData is a USHORT (16-bit) holding the signed wheel
+                    // delta directly (typically ±120 = WHEEL_DELTA). Do NOT use HIWORD()
+                    // here - HIWORD expects a 32-bit value and returns the upper 16 bits,
+                    // which are always 0 for a 16-bit usButtonData, so the sign is lost
+                    // and every scroll event looks like "scroll down". Cast directly.
+                    SHORT delta = (SHORT)m.usButtonData;
                     std::lock_guard<std::mutex> lk(g_flameMutex);
                     g_flame->on_scroll(delta > 0 ? 1 : -1);
                 }
