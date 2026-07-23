@@ -30,8 +30,8 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
-          sdk: 10.0.22621
-          toolset: 14.39
+          # Let the action pick the latest installed Windows SDK + MSVC toolset.
+          # Pinning specific versions breaks when GitHub rotates the windows-latest image.
 
       - name: Show toolchain versions
         shell: cmd
