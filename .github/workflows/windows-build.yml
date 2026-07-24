@@ -2,7 +2,7 @@ name: Windows Native Build (NVIDIA + DirectX 11 + Multi-core)
 
 on:
   push:
-    branches: [ main, windows-native-v3, "**" ]
+    branches: [ windows-dev ]
     paths:
       - 'src/windows/cpp/kursorflame_v2.5.cpp'
       - 'kursorflame.rc'
@@ -14,7 +14,7 @@ on:
       - 'startup_OFF.bat'
       - '.github/workflows/windows-build.yml'
   pull_request:
-    branches: [ main ]
+    branches: [ windows-dev ]
   workflow_dispatch:
 
 jobs:
