@@ -47,7 +47,7 @@ Cursor_Flame/
 │   ├── windows/
 │   │   ├── cpp/
 │   │   │   ├── kursorflame_v1.cpp   # Windows C++ v1 (basic)
-│   │   │   └── kursorflame_v3.cpp   # Windows C++ v2.5 native (NVIDIA+D3D11+AVX2)
+│   │   │   └── kursorflame_v2.5.cpp # Windows C++ v2.5 native (NVIDIA+D3D11+AVX2)
 │   │   └── python/
 │   │       └── kursorflame_v1.py    # Windows Python v1 (PyQt5)
 │   └── linux/
@@ -130,7 +130,7 @@ cd Cursor_Flame
 # Run from "x64 Native Tools Command Prompt for VS":
 cl /O2 /EHsc /std:c++17 /arch:AVX2 /fp:fast /Oi /Ot /Oy /Qpar /GL ^
    /DUNICODE /D_UNICODE /Fe:KursorFlame.exe ^
-   src\windows\cpp\kursorflame_v3.cpp ^
+   src\windows\cpp\kursorflame_v2.5.cpp ^
    /link /SUBSYSTEM:WINDOWS /MACHINE:X64 /STACK:8388608 /LTCG ^
    d3d11.lib dxgi.lib dxguid.lib d3dcompiler.lib ^
    user32.lib gdi32.lib dwmapi.lib dcomp.lib ole32.lib shell32.lib shlwapi.lib
@@ -296,7 +296,7 @@ pyinstaller --onefile --windowed --icon=assets/cf_ico.ico src/windows/python/kur
 # MSVC from "x64 Native Tools Command Prompt for VS"
 cl /O2 /EHsc /std:c++17 /arch:AVX2 /fp:fast /Oi /Ot /Oy /Qpar /GL ^
    /DUNICODE /D_UNICODE /Fe:KursorFlame.exe ^
-   src\windows\cpp\kursorflame_v3.cpp ^
+   src\windows\cpp\kursorflame_v2.5.cpp ^
    /link /SUBSYSTEM:WINDOWS /MACHINE:X64 /STACK:8388608 /LTCG ^
    d3d11.lib dxgi.lib dxguid.lib d3dcompiler.lib ^
    user32.lib gdi32.lib dwmapi.lib dcomp.lib ole32.lib shell32.lib shlwapi.lib
